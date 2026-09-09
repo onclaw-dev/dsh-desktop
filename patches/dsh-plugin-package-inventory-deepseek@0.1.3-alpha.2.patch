@@ -1,0 +1,25 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -42,6 +42,21 @@ function barePackageManifest(packageName, anchors) {
+ 			if (existsSync(manifest)) return manifest;
+ 		}
+ 	}
++	/*
++	 * A packaged Desktop Profile intentionally has no physical node_modules
++	 * fallback. Once its Profile-to-ASAR bridge is active, resolve the package
++	 * entry through that bridge and walk back to the owning manifest.
++	 */
++	const resolverCount = globalThis[Symbol.for("dsh-plugin-desktop.asar-module-resolver")];
++	if (typeof resolverCount !== "number" || resolverCount <= 0) return;
++	for (const anchor of anchors) {
++		try {
++			const manifest = nearestManifest(createRequire(anchor).resolve(packageName));
++			if (manifest !== void 0) return manifest;
++		} catch {
++			// Try the next Loader provenance anchor.
++		}
++	}
+ }
+ /** Find the nearest owning manifest for a relative or absolute plugin module. */
+ function nearestManifest(modulePath) {

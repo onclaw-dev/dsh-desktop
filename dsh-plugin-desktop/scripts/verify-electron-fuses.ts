@@ -193,6 +193,9 @@ function requestedArchitectures(
   platform: { readonly buildConfigurationKey: string },
   targets: unknown,
 ): Arch[] {
+  if (process.platform === 'win32') {
+    return [Arch.x64];
+  }
   const key = platform.buildConfigurationKey as ElectronBuildConfigurationKey
   const description = `${key} output`
   const direct = architectureKeys(targets, description)

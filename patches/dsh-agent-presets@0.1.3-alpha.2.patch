@@ -1,0 +1,114 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1,4 +1,4 @@
+-import { isBuiltin } from "node:module";
++import { createRequire, isBuiltin } from "node:module";
+ import { chmod, cp, readFile, readdir, rm, stat } from "node:fs/promises";
+ import { evaluate, isJsExpr } from "@deepseek-ai/cordis-plugin-loader";
+ import z from "@deepseek-ai/schemastery";
+@@ -254,6 +254,18 @@ function packageInstalled(name, base) {
+ 		dir = parent;
+ 	}
+ }
++/** Resolve through Desktop's active Profile-to-ASAR bridge after the physical walk misses. */
++function packageAvailable(name, base) {
++	if (packageInstalled(name, base)) return true;
++	const resolverCount = globalThis[Symbol.for("dsh-plugin-desktop.asar-module-resolver")];
++	if (typeof resolverCount !== "number" || resolverCount <= 0) return false;
++	try {
++		createRequire(base).resolve(name);
++		return true;
++	} catch {
++		return false;
++	}
++}
+ /**
+ * Whether one classified row names a module that exists, importing nothing.
+ *
+@@ -286,6 +296,6 @@ function packageInstalled(name, base) {
+ async function rowResolves(row, presetBase, harnessBase) {
+ 	if (row.kind === "builtin") return true;
+-	if (row.kind === "package") return isBuiltin(row.specifier) || packageInstalled(row.specifier, harnessBase);
++	if (row.kind === "package") return isBuiltin(row.specifier) || packageAvailable(row.specifier, harnessBase);
+ 	return await isFile(fileURLToPath(row.kind === "file" ? new URL(row.specifier) : new URL(row.specifier, presetBase)));
+ }
+ /**
+diff --git a/lib/invariant.js b/lib/invariant.js
+--- a/lib/invariant.js
++++ b/lib/invariant.js
+@@ -1,4 +1,4 @@
+-import { isBuiltin } from "node:module";
++import { createRequire, isBuiltin } from "node:module";
+ import { chmod, cp, readFile, readdir, rm, stat } from "node:fs/promises";
+ import { evaluate, isJsExpr } from "@deepseek-ai/cordis-plugin-loader";
+ import z from "@deepseek-ai/schemastery";
+@@ -253,6 +253,18 @@ function packageInstalled(name, base) {
+ 		dir = parent;
+ 	}
+ }
++/** Resolve through Desktop's active Profile-to-ASAR bridge after the physical walk misses. */
++function packageAvailable(name, base) {
++	if (packageInstalled(name, base)) return true;
++	const resolverCount = globalThis[Symbol.for("dsh-plugin-desktop.asar-module-resolver")];
++	if (typeof resolverCount !== "number" || resolverCount <= 0) return false;
++	try {
++		createRequire(base).resolve(name);
++		return true;
++	} catch {
++		return false;
++	}
++}
+ /**
+ * Whether one classified row names a module that exists, importing nothing.
+ *
+@@ -285,6 +295,6 @@ function packageInstalled(name, base) {
+ async function rowResolves(row, presetBase, harnessBase) {
+ 	if (row.kind === "builtin") return true;
+-	if (row.kind === "package") return isBuiltin(row.specifier) || packageInstalled(row.specifier, harnessBase);
++	if (row.kind === "package") return isBuiltin(row.specifier) || packageAvailable(row.specifier, harnessBase);
+ 	return await isFile(fileURLToPath(row.kind === "file" ? new URL(row.specifier) : new URL(row.specifier, presetBase)));
+ }
+ /**
+diff --git a/lib/types/discovery.js b/lib/types/discovery.js
+--- a/lib/types/discovery.js
++++ b/lib/types/discovery.js
+@@ -18,6 +18,6 @@
+ import { existsSync } from 'node:fs';
+ import { readdir, readFile, stat } from 'node:fs/promises';
+-import { isBuiltin } from 'node:module';
++import { createRequire, isBuiltin } from 'node:module';
+ import { dirname, join, resolve } from 'node:path';
+ import { fileURLToPath, pathToFileURL } from 'node:url';
+ import { load } from 'js-yaml';
+@@ -121,5 +121,20 @@ function packageInstalled(name, base) {
+         dir = parent;
+     }
+ }
++/**
++ * Resolve through Desktop's active Profile-to-ASAR bridge after the physical
++ * node_modules walk misses. Other Harness deployments retain the original
++ * disk-only health contract.
++ */
++function packageAvailable(name, base) {
++    if (packageInstalled(name, base)) return true;
++    const resolverCount = globalThis[Symbol.for('dsh-plugin-desktop.asar-module-resolver')];
++    if (typeof resolverCount !== 'number' || resolverCount <= 0) return false;
++    try {
++        createRequire(base).resolve(name);
++        return true;
++    }
++    catch { return false; }
++}
+ /**
+  * Whether one classified row names a module that exists, importing nothing.
+@@ -154,8 +166,8 @@ function packageInstalled(name, base) {
+ async function rowResolves(row, presetBase, harnessBase) {
+     if (row.kind === 'builtin')
+         return true;
+     if (row.kind === 'package')
+-        return isBuiltin(row.specifier) || packageInstalled(row.specifier, harnessBase);
++        return isBuiltin(row.specifier) || packageAvailable(row.specifier, harnessBase);
+     const url = row.kind === 'file' ? new URL(row.specifier) : new URL(row.specifier, presetBase);
+     return await isFile(fileURLToPath(url));
+ }

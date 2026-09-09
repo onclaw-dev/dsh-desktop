@@ -18,6 +18,7 @@ import AdmZip from 'adm-zip'
 import { materializeLegacyPresetAliases } from './agent-preset-compat.ts'
 import { exportDiagnosticsZip } from './diagnostic-export.ts'
 import { installProfilePackageResolver } from './module-resolution.ts'
+import { packagedDependencyPath } from './packaged-runtime-path.ts'
 
 const OK_MARKER = 'DSH_PACKAGED_RUNTIME_OK'
 
@@ -168,6 +169,77 @@ try {
 
   const releaseResolver = installProfilePackageResolver(pathToFileURL(profileManifestPath).href)
   try {
+    // Preset discovery performs a no-import health check before mounting. In a
+    // packaged Desktop the Profile has no physical installation fallback, so
+    // that check must consult the same Profile-to-ASAR resolver as Loader.
+    const discoveryEntry = packagedDependencyPath(
+      import.meta.url,
+      '@deepseek-ai/dsh-agent-presets/lib/types/discovery.js',
+    )
+    const discovery = await import(pathToFileURL(discoveryEntry).href) as {
+      scanRoot(
+        root: { path: string, trust: 'system' },
+        harnessBase: string,
+      ): Promise<Array<{ id: string, broken?: string }>>
+    }
+    const presetPackageRoot = dirname(dirname(dirname(discoveryEntry)))
+    const presets = await discovery.scanRoot(
+      { path: join(presetPackageRoot, 'presets'), trust: 'system' },
+      pathToFileURL(profileManifestPath).href,
+    )
+    const standardPreset = presets.find(preset => preset.id === 'standard')
+    assert(standardPreset !== undefined, 'did not discover the shipped standard preset')
+    assert(
+      standardPreset.broken === undefined,
+      `reported the shipped standard preset broken: ${standardPreset.broken ?? 'unknown reason'}`,
+    )
+
+    // The default-on dsh_plugin_packages request extension must resolve Loader
+    // package identities through the same bridge. A failure here prevents every
+    // official DeepSeek request before it reaches the network.
+    const inventoryEntry = packagedDependencyPath(
+      import.meta.url,
+      '@deepseek-ai/dsh-plugin-package-inventory-deepseek/lib/index.js',
+    )
+    type InventoryProvider = {
+      prepare(request: { signal: AbortSignal }): Promise<{
+        value: { packages: Array<{ name: string, version: string }> }
+      }>
+    }
+    const inventory = await import(pathToFileURL(inventoryEntry).href) as {
+      apply(ctx: object, config: { enabled: boolean }): void
+    }
+    let inventoryProvider: InventoryProvider | undefined
+    const loaderTree: {
+      ctx: { baseUrl: string }
+      entries(): IterableIterator<object>
+    } = {
+      ctx: { baseUrl: pathToFileURL(profileManifestPath).href },
+      entries: () => [activeEntry][Symbol.iterator](),
+    }
+    const activeEntry = {
+      options: { name: '@deepseek-ai/dsh-agent' },
+      disabled: false,
+      fiber: { state: 2 },
+      parent: { tree: loaderTree },
+    }
+    inventory.apply({
+      baseUrl: pathToFileURL(profileManifestPath).href,
+      loader: loaderTree,
+      get: () => undefined,
+      deepseekLlmApiExtensions: {
+        register: (_field: string, provider: InventoryProvider) => {
+          inventoryProvider = provider
+        },
+      },
+    }, { enabled: true })
+    assert(inventoryProvider !== undefined, 'plugin package inventory did not register its request extension')
+    const preparedInventory = await inventoryProvider.prepare({ signal: new AbortController().signal })
+    assert(
+      preparedInventory.value.packages.some(pkg => pkg.name === '@deepseek-ai/dsh-agent'),
+      'plugin package inventory could not resolve a Profile package from app.asar',
+    )
+
     const profileRequire = createRequire(profileManifestPath)
     const installRequire = createRequire(installAnchor)
     const consumer = profileRequire('dsh-packaged-cjs-consumer') as {

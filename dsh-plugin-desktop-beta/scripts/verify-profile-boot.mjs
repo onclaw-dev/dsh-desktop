@@ -221,6 +221,25 @@ try {
   if (minimalPreset.id !== 'minimal') {
     throw new Error(`assembled Windows profile remapped minimal preset to ${minimalPreset.id}`)
   }
+  if (minimalPreset.broken !== undefined) {
+    throw new Error(`assembled Windows profile reports the minimal preset broken: ${minimalPreset.broken}`)
+  }
+  const mountableMinimalPreset = await agentPresets.resolveMountable('minimal')
+  if (mountableMinimalPreset.id !== 'minimal') {
+    throw new Error(`assembled Windows profile cannot mount minimal preset: ${mountableMinimalPreset.id}`)
+  }
+  const extensionRegistry = ctx.get('deepseekLlmApiExtensions')
+  if (extensionRegistry === undefined) {
+    throw new Error('assembled Windows profile is missing the DeepSeek request-extension registry')
+  }
+  const preparedExtensions = await extensionRegistry.prepare({
+    body: { model: 'desktop-profile-smoke', messages: [] },
+    signal: new AbortController().signal,
+    purpose: 'desktop-profile-smoke',
+  })
+  if (!Array.isArray(preparedExtensions.fields.dsh_plugin_packages?.packages)) {
+    throw new Error('assembled Windows profile cannot prepare its active plugin package inventory')
+  }
   const hostServiceProbe = ctx.get(HOST_SERVICE_PROBE_KEY)
   if (hostServiceProbe?.current?.name !== 'desktop'
     || hostServiceProbe.current.dir !== prepared.profile.dir
